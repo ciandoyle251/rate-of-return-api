@@ -4,7 +4,7 @@ from flask import Flask, request, jsonify
 from utils import calculate_investment_performance
 
 app = Flask(__name__)
-
+CORS(app)
 @app.route('/investment_performance', methods=['GET'])
 def investment_performance():
     ticker = request.args.get('ticker')
