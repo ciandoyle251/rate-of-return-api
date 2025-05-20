@@ -1,4 +1,5 @@
 import os
+from flask_cors import CORS
 from flask import Flask, request, jsonify
 from utils import calculate_investment_performance
 
