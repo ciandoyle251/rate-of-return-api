@@ -1,8 +1,8 @@
 import yfinance as yf
 import pandas as pd
+import numpy as np
 from fredapi import Fred
 
-# Replace with your actual FRED API key
 FRED_API_KEY = '50a101cdefe61ba1974b3c1dec658733'
 fred = Fred(api_key=FRED_API_KEY)
 
@@ -42,24 +42,27 @@ def calculate_investment_performance(ticker, country, start_date, end_date, inve
     inflation_dict = {item['month']: item['inflation_rate'] for item in inflation}
 
     months = sorted(set(nominal_dict.keys()) & set(inflation_dict.keys()))
-
     if not months:
         return None
 
     monthly_data = []
     nominal_value = investment_amount
     real_value = investment_amount
-    cash_value = investment_amount
+
+    # Cash flows for IRR calculation:
+    # initial investment at time 0 (outflow)
+    cash_flows = [-investment_amount]
 
     nominal_returns = []
     inflation_rates = []
     real_returns = []
 
     for i, month in enumerate(months):
+        # Add monthly contribution at the *start* of the period except for the first month
         if i > 0:
             nominal_value += monthly_contribution
             real_value += monthly_contribution
-            cash_value += monthly_contribution
+            cash_flows.append(-monthly_contribution)
 
         nr = nominal_dict[month]
         ir = inflation_dict[month]
@@ -71,7 +74,6 @@ def calculate_investment_performance(ticker, country, start_date, end_date, inve
 
         nominal_value *= (1 + nr)
         real_value *= (1 + real_ret)
-        cash_value /= (1 + ir)
 
         monthly_data.append({
             'month': month,
@@ -80,41 +82,37 @@ def calculate_investment_performance(ticker, country, start_date, end_date, inve
             'real_return_percent': round(real_ret * 100, 4),
             'nominal_value': round(nominal_value, 2),
             'real_value': round(real_value, 2),
-            'cash_value': round(cash_value, 2)
         })
 
     n_months = len(months)
 
-    # Total nominal return compounded
-    total_nominal_return = 1
-    for r in nominal_returns:
-        total_nominal_return *= (1 + r)
-    total_nominal_return -= 1
+    # Final cash inflow at end of investment period in real terms
+    cash_flows.append(real_value)
 
-    # Total inflation compounded
-    total_inflation = 1
-    for ir in inflation_rates:
-        total_inflation *= (1 + ir)
-    total_inflation -= 1
+    # Calculate IRR (monthly)
+    try:
+        irr_monthly = np.irr(cash_flows)
+        annualized_real_return = (1 + irr_monthly) ** 12 - 1 if irr_monthly is not None else None
+    except Exception:
+        annualized_real_return = None
 
-    # Total real return from real_value / initial
-    total_real_return = real_value / investment_amount - 1
+    # Annualized nominal and inflation returns (geometric average)
+    total_nominal_return = np.prod([1 + r for r in nominal_returns]) - 1
+    total_inflation = np.prod([1 + ir for ir in inflation_rates]) - 1
 
-    # Annualized returns
     annualized_nominal_return = (1 + total_nominal_return) ** (12 / n_months) - 1
     annualized_inflation = (1 + total_inflation) ** (12 / n_months) - 1
-    annualized_real_return = (1 + total_real_return) ** (12 / n_months) - 1
 
-    final_value_start_period = real_value / (1 + total_inflation)
+    # Final value expressed in start period dollars
+    final_value_start_period_dollars = real_value / (1 + total_inflation)
 
     return {
         'monthly_data': monthly_data,
         'annualized_nominal_return_percent': round(annualized_nominal_return * 100, 2),
         'annualized_inflation_percent': round(annualized_inflation * 100, 2),
-        'annualized_real_return_percent': round(annualized_real_return * 100, 2),
-        'total_real_return_percent': round(total_real_return * 100, 2),
+        'annualized_real_return_percent': round(annualized_real_return * 100, 2) if annualized_real_return is not None else None,
         'final_value_real_terms': round(real_value, 2),
-        'final_value_start_period_dollars': round(final_value_start_period, 2),
+        'final_value_start_period_dollars': round(final_value_start_period_dollars, 2),
         'investment_amount': investment_amount,
         'monthly_contribution': monthly_contribution,
         'months_count': n_months
