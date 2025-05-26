@@ -37,23 +37,29 @@ def calculate_investment_performance(ticker, country, start_date, end_date, inve
     inflation = get_monthly_inflation_rate(start_date, end_date, country)
     if nominal is None or inflation is None:
         return None
-    
+
     nominal_dict = {item['month']: item['monthly_return'] for item in nominal}
     inflation_dict = {item['month']: item['inflation_rate'] for item in inflation}
 
     months = sorted(set(nominal_dict.keys()) & set(inflation_dict.keys()))
 
+    if not months:
+        return None
+
     monthly_data = []
-    value = investment_amount
+    nominal_value = investment_amount
+    real_value = investment_amount
+    cash_value = investment_amount
 
     nominal_returns = []
     inflation_rates = []
     real_returns = []
 
-    for month in months:
-        # Add monthly contribution at the start of the month (except first month since initial amount already counted)
-        if month != months[0]:
-            value += monthly_contribution
+    for i, month in enumerate(months):
+        if i > 0:
+            nominal_value += monthly_contribution
+            real_value += monthly_contribution
+            cash_value += monthly_contribution
 
         nr = nominal_dict[month]
         ir = inflation_dict[month]
@@ -63,39 +69,43 @@ def calculate_investment_performance(ticker, country, start_date, end_date, inve
         inflation_rates.append(ir)
         real_returns.append(real_ret)
 
-        value = value * (1 + real_ret)
+        nominal_value *= (1 + nr)
+        real_value *= (1 + real_ret)
+        cash_value /= (1 + ir)
 
         monthly_data.append({
             'month': month,
             'nominal_return_percent': round(nr * 100, 4),
             'inflation_rate_percent': round(ir * 100, 4),
             'real_return_percent': round(real_ret * 100, 4),
-            'investment_value': round(value, 2)
+            'nominal_value': round(nominal_value, 2),
+            'real_value': round(real_value, 2),
+            'cash_value': round(cash_value, 2)
         })
 
     n_months = len(months)
-    if n_months == 0:
-        return None
 
-    # Calculate total nominal return compounded
+    # Total nominal return compounded
     total_nominal_return = 1
     for r in nominal_returns:
         total_nominal_return *= (1 + r)
     total_nominal_return -= 1
 
-    total_real_return = value / investment_amount - 1
-
-    annualized_nominal_return = (1 + total_nominal_return) ** (12 / n_months) - 1
-
+    # Total inflation compounded
     total_inflation = 1
     for ir in inflation_rates:
         total_inflation *= (1 + ir)
     total_inflation -= 1
-    annualized_inflation = (1 + total_inflation) ** (12 / n_months) - 1
 
+    # Total real return from real_value / initial
+    total_real_return = real_value / investment_amount - 1
+
+    # Annualized returns
+    annualized_nominal_return = (1 + total_nominal_return) ** (12 / n_months) - 1
+    annualized_inflation = (1 + total_inflation) ** (12 / n_months) - 1
     annualized_real_return = (1 + total_real_return) ** (12 / n_months) - 1
 
-    final_value_start_period = value / (1 + total_inflation)
+    final_value_start_period = real_value / (1 + total_inflation)
 
     return {
         'monthly_data': monthly_data,
@@ -103,7 +113,7 @@ def calculate_investment_performance(ticker, country, start_date, end_date, inve
         'annualized_inflation_percent': round(annualized_inflation * 100, 2),
         'annualized_real_return_percent': round(annualized_real_return * 100, 2),
         'total_real_return_percent': round(total_real_return * 100, 2),
-        'final_value_real_terms': round(value, 2),
+        'final_value_real_terms': round(real_value, 2),
         'final_value_start_period_dollars': round(final_value_start_period, 2),
         'investment_amount': investment_amount,
         'monthly_contribution': monthly_contribution,
